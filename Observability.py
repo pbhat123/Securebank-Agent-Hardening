@@ -26,7 +26,7 @@ agent = build_support_agent(collection_name="observability_exercise")
 app = agent["app"]
 
 print("\n" + "=" * 60)
-print("SEGMENT 2: FIRST TRACES")
+print("FIRST TRACES")
 print("=" * 60)
 
 queries = [
@@ -65,7 +65,7 @@ else:
 #   Total latency: ~0.6-1.0s
 
 print("\n" + "=" * 60)
-print("SEGMENT 3: ERROR TRACING")
+print("ERROR TRACING")
 print("=" * 60)
 
 if app is not None:
@@ -86,7 +86,7 @@ else:
 # ---------------------------------------------------------------------------
 
 print("\n" + "=" * 60)
-print("BONUS: TAGGED RUNS")
+print("TAGGED RUNS")
 print("=" * 60)
 
 if app is not None:
