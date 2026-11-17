@@ -1,16 +1,8 @@
 """
-Module B Exercise: Evaluation with LangSmith + DeepEval
+Evaluation with LangSmith + DeepEval
 ---------------------------------------------------------
-Implement evaluators, compute MRR, use DeepEval metrics, build
-a G-Eval custom metric, enhance the dataset, and hill-climb.
-
-Segments covered:
-  6.  LangSmith evaluators (custom + LLM-as-judge)
-  8.  MRR (Mean Reciprocal Rank)
-  9.  DeepEval (faithfulness, hallucination, answer relevancy)
-  10. G-Eval (custom criteria — empathy)
-  11. Dataset enhancement (add edge-case examples)
-  12. Hill climbing (top_k=1 vs top_k=5)
+Implements evaluators (custom + LLM-as-judge), computes MRR (Mean Reciprocal Rank), uses DeepEval metrics (faithfulness, hallucination, answer relevancy), 
+builds a G-Eval custom metric (empathy), enhances the dataset (adds edge-case examples), and does hill-climbing (top_k=1 vs top_k=5).
 """
 
 import os
@@ -34,7 +26,7 @@ os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
 sys.path.insert(0, str(Path(__file__).parent.parent / "project"))
 from fintech_support_agent import build_support_agent, ask
 
-# --- Build pipeline (provided) ---
+# --- Build pipeline ---
 print("Building FinTech support agent...")
 agent = build_support_agent(collection_name="eval_exercise")
 app = agent["app"]
@@ -42,13 +34,11 @@ retriever = agent["retriever"]
 judge_llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
 print("Pipeline ready.\n")
 
-# --- Ensure exercise dataset exists in LangSmith ---
 ensure_exercise_dataset()
 
 # ===================================================================
-# SEGMENT 6: LangSmith Evaluators
+# LangSmith Evaluators
 # ===================================================================
-
 
 def _judge(prompt, key, **kw):
     """Call judge_llm with a prompt, parse {"score","reason"} JSON."""
@@ -59,12 +49,6 @@ def _judge(prompt, key, **kw):
     except (json.JSONDecodeError, ValueError):
         return {"key": key, "score": 0.5}
 
-# ---------------------------------------------------------------------------
-# TODO 1: Implement run_agent
-#
-# Run the multi-agent graph and return:
-#   {"answer": ..., "intent": ..., "context": ..., "retrieved_sources": [...]}
-# ---------------------------------------------------------------------------
 def run_agent(inputs):
     question = inputs["question"]
     result = ask(app, question)
@@ -75,31 +59,10 @@ def run_agent(inputs):
         "retrieved_sources": result["retrieved_sources"],
     }
 
-
-# ---------------------------------------------------------------------------
-# TODO 2: Implement routing accuracy evaluator
-#
-# Compare run.outputs["intent"] to example.outputs["intent"]
-# Score 1.0 if match, 0.0 if not.
-# Return: {"key": "routing_accuracy", "score": float}
-# ---------------------------------------------------------------------------
 def routing_evaluator(run, example):
     score = 1.0 if run.outputs.get("intent", "") == example.outputs.get("intent", "") else 0.0
     return {"key": "routing_accuracy", "score": score}
 
-
-# ---------------------------------------------------------------------------
-# TODO 3: Implement LLM-as-judge faithfulness evaluator
-#
-# Use judge_llm to assess whether the answer is faithful to the context.
-# Score: 1.0 = fully faithful, 0.5 = partial, 0.0 = not faithful
-# For escalation responses (empty context), score 1.0 if it's a general
-# empathetic handoff without specific policy claims.
-#
-# Return: {"key": "faithfulness", "score": float}
-#
-# Hint: Build a ChatPromptTemplate, call judge_llm, parse JSON response.
-# ---------------------------------------------------------------------------
 def faithfulness_evaluator(run, example):
     answer = run.outputs.get("answer", "")
     context = run.outputs.get("context", "")
@@ -121,16 +84,6 @@ def faithfulness_evaluator(run, example):
                   context=context[:2000] if context else "(no context - escalation response)",
                   question=question, answer=answer)
 
-
-# ---------------------------------------------------------------------------
-# TODO 4: Implement LLM-as-judge correctness evaluator
-#
-# Compare actual answer to expected answer using judge_llm.
-# Focus on factual accuracy, not exact wording.
-# Score: 1.0 = all key facts correct, 0.5 = partial, 0.0 = wrong
-#
-# Return: {"key": "correctness", "score": float}
-# ---------------------------------------------------------------------------
 def correctness_evaluator(run, example):
     actual = run.outputs.get("answer", "")
     expected = example.outputs.get("answer", "")
@@ -148,11 +101,6 @@ def correctness_evaluator(run, example):
     ])
     return _judge(prompt, "correctness", question=question, expected=expected, actual=actual)
 
-
-# ---------------------------------------------------------------------------
-# TODO 5: Run evaluate() with all evaluators
-# Use data=EXERCISE_DATASET_NAME, experiment_prefix="exercise-eval-student"
-# ---------------------------------------------------------------------------
 results = evaluate(
     run_agent,
     data=EXERCISE_DATASET_NAME,
@@ -162,22 +110,10 @@ results = evaluate(
 )
 print("Evaluation complete. View results in LangSmith.\n")
 
-
 # ===================================================================
-# SEGMENT 8: MRR (Mean Reciprocal Rank)
+# MRR (Mean Reciprocal Rank)
 # ===================================================================
 
-# ---------------------------------------------------------------------------
-# TODO 6: Compute MRR for the retriever
-#
-# For each query below, run it through the retriever and find
-# the rank (1-based) of the first relevant document.
-#
-# Expected relevant sources are provided.
-# If no relevant doc is found in results, reciprocal rank = 0.
-#
-# MRR = average of all reciprocal ranks
-# ---------------------------------------------------------------------------
 mrr_queries = [
     # Easy — clearly maps to one document
     {"query": "What credit score do I need for a personal loan?", "relevant_source": "loan_policy.md"},
@@ -214,32 +150,10 @@ for item in mrr_queries:
 mrr = sum(reciprocal_ranks) / len(reciprocal_ranks)
 print(f"\n  MRR = {mrr:.4f}\n")
 
-
 # ===================================================================
-# SEGMENT 9: DeepEval
+# DeepEval
 # ===================================================================
 
-# ---------------------------------------------------------------------------
-# TODO 7: Run DeepEval metrics
-#
-# pip install deepeval
-#
-# Create 5 test cases from the agent's actual outputs.
-# Run: FaithfulnessMetric, AnswerRelevancyMetric, HallucinationMetric
-#
-# Example:
-#   from deepeval.test_case import LLMTestCase
-#   from deepeval.metrics import FaithfulnessMetric
-#   from deepeval import assert_test
-#
-#   test_case = LLMTestCase(
-#       input="What is the overdraft fee?",
-#       actual_output="The overdraft fee is $35.",
-#       retrieval_context=["...retrieved doc content..."]
-#   )
-#   faithfulness = FaithfulnessMetric(threshold=0.7)
-#   assert_test(test_case, [faithfulness])
-# ---------------------------------------------------------------------------
 print("=" * 60)
 print("SEGMENT 9: DEEPEVAL METRICS")
 print("=" * 60)
@@ -273,25 +187,10 @@ for query in eval_queries:
             print(f"    {type(m).__name__}: SKIPPED ({type(e).__name__}: {str(e)[:100]})")
 print()
 
-
 # ===================================================================
-# SEGMENT 10: G-Eval
+# G-Eval
 # ===================================================================
 
-# ---------------------------------------------------------------------------
-# TODO 8: Build a G-Eval metric for empathy in escalation responses
-#
-# from deepeval.metrics import GEval
-# from deepeval.test_case import LLMTestCaseParams
-#
-# Define a GEval metric with:
-#   name: "Empathy"
-#   criteria: describe what empathetic support looks like
-#   evaluation_params: [LLMTestCaseParams.ACTUAL_OUTPUT]
-#   threshold: 0.7
-#
-# Run on escalation test cases (frustrated customer queries).
-# ---------------------------------------------------------------------------
 print("=" * 60)
 print("SEGMENT 10: G-EVAL (EMPATHY)")
 print("=" * 60)
@@ -325,29 +224,10 @@ for query in escalation_queries:
     print(f"  Empathy: {empathy_metric.score:.2f} ({'PASS' if empathy_metric.is_successful() else 'FAIL'})")
     print(f"  Reason: {(empathy_metric.reason or '')[:100]}")
 
-
 # ===================================================================
-# SEGMENT 11: Dataset Enhancement
+# Dataset Enhancement
 # ===================================================================
 
-# ---------------------------------------------------------------------------
-# TODO 9: Add new evaluation examples to improve dataset coverage
-#
-# The base dataset (EVAL_EXAMPLES) has 15 examples. Real-world evaluation
-# datasets grow over time as you discover failure modes.
-#
-# Add 3 new examples that test edge cases the current dataset misses:
-#   a) A multi-part question (asks two things at once)
-#   b) A question with a wrong/misspelled account number
-#   c) A boundary-case policy question (e.g., exact threshold amounts)
-#
-# Steps:
-#   1. Define the 3 new examples in the same format as EVAL_EXAMPLES
-#   2. Upload them to the existing LangSmith dataset using client.create_examples()
-#   3. Print confirmation
-#
-# Hint: Each example needs {"inputs": {"question": ...}, "outputs": {"answer": ..., "intent": ...}}
-# ---------------------------------------------------------------------------
 print("=" * 60)
 print("SEGMENT 11: DATASET ENHANCEMENT")
 print("=" * 60)
@@ -377,54 +257,18 @@ if existing:
     )
     print(f"Added {len(new_examples)} examples to '{EXERCISE_DATASET_NAME}'.\n")
 
-
 # ===================================================================
-# SEGMENT 12: Hill Climbing
+# Hill Climbing
 # ===================================================================
 
-# ---------------------------------------------------------------------------
-# TODO 10: Hill climbing — improve correctness by changing ONE variable
-#
-# The demo showed hill climbing on keyword_correctness by changing chunk_size.
-# Now you'll hill-climb on a CORRECTNESS evaluator by changing top_k.
-#
-# This uses a separate LangSmith dataset (fintech-exercise-hill-climb) with
-# 8 policy questions that require precise factual answers.
-#
-# IMPORTANT: Both agents use chunk_size=200 (tiny fragments) so that
-# top_k actually matters. With large chunks, even top_k=1 has enough info.
-# With tiny chunks, top_k=1 gets one incomplete fragment while top_k=5
-# assembles a more complete picture.
-#
-# Steps:
-#   1. Create the hill climbing dataset (provided — just call the helper)
-#   2. Implement a correctness_evaluator (LLM-as-judge): compare the agent's
-#      answer to the expected answer. Score 1.0 = all key facts correct,
-#      0.5 = partial, 0.0 = wrong/missing facts.
-#      Return: {"key": "correctness", "score": float}
-#      Hint: Use judge_llm with a ChatPromptTemplate, parse JSON response.
-#   3. Build a baseline agent with chunk_size=200, top_k=1
-#   4. Run evaluate() with [routing_evaluator, keyword_correctness,
-#      correctness_evaluator] on the hill-climb dataset.
-#      Use experiment_prefix="exercise-hc-topk1".
-#   5. Build an improved agent with chunk_size=200, top_k=5
-#   6. Run evaluate() with the same evaluators.
-#      Use experiment_prefix="exercise-hc-topk5".
-#   7. Compare in LangSmith: Datasets → fintech-exercise-hill-climb → Compare
-#
-# Why this works:
-#   chunk_size=200: documents are split into tiny fragments (incomplete facts)
-#   top_k=1 + small chunks: only ONE tiny fragment → LLM misses key details
-#   top_k=5 + small chunks: FIVE fragments → more context → better correctness
-# ---------------------------------------------------------------------------
 print("=" * 60)
 print("SEGMENT 12: HILL CLIMBING")
 print("=" * 60)
 
-# --- Create the hill climbing dataset ---
+# --- Hill climbing dataset ---
 ensure_exercise_hc_dataset()
 
-# --- Evaluators from the demo (provided) ---
+# --- Evaluators ---
 def routing_evaluator_hc(run, example):
     predicted = run.outputs.get("intent", "")
     expected = example.outputs.get("intent", "")
@@ -440,7 +284,7 @@ def keyword_correctness_hc(run, example):
     matches = sum(1 for term in key_terms if term in actual)
     return {"key": "keyword_correctness", "score": round(matches / len(key_terms), 4)}
 
-# --- YOUR CODE: Implement correctness_evaluator ---
+# --- Implement correctness_evaluator ---
 def correctness_evaluator_hc(run, example):
     actual = run.outputs.get("answer", "")
     expected = example.outputs.get("answer", "")
@@ -478,33 +322,5 @@ for top_k, name in [(1, "hill_climb_v1"), (5, "hill_climb_v2")]:
         metadata={"model": "gpt-4o-mini", "chunk_size": 200, "top_k": top_k},
     )
 print(">>> Compare in LangSmith: Datasets -> fintech-exercise-hill-climb -> Compare")
-
-# --- Reference (original scaffold) ---
-# Step 3: Build baseline (chunk_size=200, top_k=1)
-# agent_v1 = build_support_agent(collection_name="hill_climb_v1", chunk_size=200, chunk_overlap=20, top_k=1)
-# app_v1 = agent_v1["app"]
-#
-# def run_agent_v1(inputs):
-#     result = ask(app_v1, inputs["question"])
-#     return {"answer": result["response"], "intent": result["intent"],
-#             "context": result["context"], "retrieved_sources": result["retrieved_sources"]}
-#
-# Step 4: Run baseline evaluate()
-# evaluate(run_agent_v1, data=EXERCISE_HC_DATASET_NAME,
-#          evaluators=[routing_evaluator_hc, keyword_correctness_hc, correctness_evaluator_hc],
-#          experiment_prefix="exercise-hc-topk1",
-#          metadata={"chunk_size": 200, "top_k": 1})
-#
-# Step 5: Build improved (chunk_size=200, top_k=5)
-# agent_v2 = build_support_agent(collection_name="hill_climb_v2", chunk_size=200, chunk_overlap=20, top_k=5)
-# app_v2 = agent_v2["app"]
-#
-# def run_agent_v2(inputs): ...
-#
-# Step 6: Run improved evaluate()
-# evaluate(run_agent_v2, data=EXERCISE_HC_DATASET_NAME,
-#          evaluators=[routing_evaluator_hc, keyword_correctness_hc, correctness_evaluator_hc],
-#          experiment_prefix="exercise-hc-topk5",
-#          metadata={"chunk_size": 200, "top_k": 5})
 
 print("Done.")
